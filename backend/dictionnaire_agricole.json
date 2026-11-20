@@ -1,0 +1,112 @@
+
+{
+  "metadata": {
+    "name": "Dictionnaire agricole francais-dioula",
+    "region_cible": "Cote d'Ivoire",
+    "langues": ["fr", "dyu"],
+    "source_lexicale": "Lexique Dioula-Francais",
+    "instruction": "Conserver les variantes et ne pas confondre les noms de plantes avec les noms de plats."
+  },
+  "couleurs": [
+    {"fr": "Noir", "dyu": "fin"},
+    {"fr": "Blanc", "dyu": "jɛ"},
+    {"fr": "Rouge", "dyu": "fulari"},
+    {"fr": "Bleu", "dyu": "bulubulu"},
+    {"fr": "Vert", "dyu": "gwɛ"},
+    {"fr": "Jaune", "dyu": "sanan"},
+    {"fr": "Orange", "dyu": "wulen"},
+    {"fr": "Gris", "dyu": "sɛnɛ"}
+  ],
+  "cultures": {
+    "cereales": [
+      {"fr": "Maïs", "dyu": "kaba", "variantes": ["mɔnsɔ", "mɔnɔnɔ", "maanɔ"]},
+      {"fr": "Riz", "dyu": "malo", "variantes": ["kini"]},
+      {"fr": "Sorgho", "dyu": "binbiri", "variantes": ["kɛnde"]},
+      {"fr": "Sorgho rouge", "dyu": "jabalan", "variantes": ["binbiriwulen"]},
+      {"fr": "Fonio", "dyu": "foni"},
+      {"fr": "Mil", "dyu": "sano", "variantes": ["saɲɔ"]},
+      {"fr": "Blé", "dyu": "alikama", "variantes": ["alikana"]},
+      {"fr": "Orge", "dyu": null}
+    ],
+    "tubercules": [
+      {"fr": "Manioc", "dyu": "bananku", "variantes": ["gwende", "nanaku", "banaku", "bandugu"]},
+      {"fr": "Igname", "dyu": "ku", "variantes": ["kuu"]},
+      {"fr": "Patate douce", "dyu": "masaku", "variantes": ["woso", "tumawule"]},
+      {"fr": "Taro", "dyu": "dandali"},
+      {"fr": "Pomme de terre", "dyu": "pɔmuteri", "variantes": ["kɔmitɛri", "pɔmitɛri"]},
+      {"fr": "Petite patate noire", "dyu": "wosofinnin"}
+    ],
+    "legumineuses": [
+      {"fr": "Arachide", "dyu": "tiga", "variantes": ["tigan", "tige", "tigen", "tigɛ","tigai"]},
+      {"fr": "Pois de terre", "dyu": "tiganingɛlɛn", "variantes": ["tiganinkuru", "dugufofo"]},
+      {"fr": "Soja", "dyu": "tubabusɔsɔ"},
+      {"fr": "Haricot", "dyu": "sɔsɔ"},
+      {"fr": "Pois chiche", "dyu": "tigeninkuru"},
+      {"fr": "Petit pois", "dyu": "petipuwa"}
+    ],
+    "legumes": [
+      {"fr": "Oignon", "dyu": "alibasa", "variantes": ["jaba"]},
+      {"fr": "Échalote", "dyu": "jabawulennin"},
+      {"fr": "Gombo", "dyu": "gaan", "variantes": ["gwaan", "gwan", "gan"]},
+      {"fr": "Piment", "dyu": "foronto", "variantes": ["kɛlɛkɛlɛ", "musokani"]},
+      {"fr": "Tomate", "dyu": "tamati"},
+      {"fr": "Aubergine africaine", "dyu": "gɔyɔ", "variantes": ["kɔyɔ", "jagaro"]},
+      {"fr": "Aubergine noire", "dyu": "bakɔrɔninbɛlɛkili"},
+      {"fr": "Carotte", "dyu": "karɔti"},
+      {"fr": "Chou", "dyu": "supɔnpɛ"},
+      {"fr": "Chou-fleur", "dyu": "sufilɛri"},
+      {"fr": "Courgette", "dyu": "kuruzeti"},
+      {"fr": "Courge", "dyu": "jee"},
+      {"fr": "Citrouille", "dyu": "jebara"},
+      {"fr": "Radis", "dyu": "aradi"},
+      {"fr": "Laitue", "dyu": "salati"},
+      {"fr": "Menthe", "dyu": "nanaye"},
+      {"fr": "Épinard", "dyu": null},
+      {"fr": "Concombre", "dyu": null}
+    ],
+    "fruits": [
+      {"fr": "Mangue", "dyu": "mangoro"},
+      {"fr": "Mandarine", "dyu": "mandaranin"},
+      {"fr": "Orange", "dyu": "lemuru", "variantes": ["lemuruba", "leubru"]},
+      {"fr": "Citron", "dyu": "lemuru"},
+      {"fr": "Avocat", "dyu": "avoka"},
+      {"fr": "Banane", "dyu": "baranda", "variantes": ["loko", "namasa"]},
+      {"fr": "Banane plantain", "dyu": "loko"},
+      {"fr": "Goyave", "dyu": "buyaki"},
+      {"fr": "Ananas", "dyu": "jabibi"},
+      {"fr": "Melon", "dyu": "melɔn", "variantes": ["zira"]},
+      {"fr": "Corossol", "dyu": "korosɔli"},
+      {"fr": "Grenade", "dyu": "gerenadi"},
+      {"fr": "Raisin", "dyu": "ɛrɛzɛn"},
+      {"fr": "Jujube", "dyu": "tɔmɔnɔ"},
+      {"fr": "Noix de coco", "dyu": "kako"},
+      {"fr": "Pastèque", "dyu": null},
+      {"fr": "Papaye", "dyu": "papaye"}
+    ],
+    "cultures_industrielles": [
+      {"fr": "Cacao", "dyu": "kakawo"},
+      {"fr": "Café", "dyu": "kafe"},
+      {"fr": "Anacarde", "dyu": "jibaranin", "variantes": ["sɔmɔn"]},
+      {"fr": "Canne à sucre", "dyu": "jimikala"},
+      {"fr": "Sésame", "dyu": "bɛnɛ", "variantes": ["bɛnɛba"]},
+      {"fr": "Palmier à huile", "dyu": null},
+      {"fr": "Coton", "dyu": null},
+      {"fr": "Hévéa", "dyu": "mánán yiri"},
+      {"fr": "Cola", "dyu": "woro"}
+    ],
+    "plantes_aromatiques": [
+      {"fr": "Gingembre", "dyu": null},
+      {"fr": "Curcuma", "dyu": null},
+      {"fr": "Ail", "dyu": null},
+      {"fr": "Basilic", "dyu": null}
+    ]
+  },
+  "vocabulaire_agricole": [
+    {"fr": "Champ", "dyu": "fɔ́rɔ"},
+    {"fr": "Racine", "dyu": "jùù"},
+    {"fr": "Feuille", "dyu": "flaburu"},
+    {"fr": "Récolte", "dyu": "suman"},
+    {"fr": "Produit agricole", "dyu": "cikɛfɛn"},
+    {"fr": "Terre", "dyu": "dugukolo"}
+  ]
+}
