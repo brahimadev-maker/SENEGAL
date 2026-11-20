@@ -3,7 +3,8 @@
  * Le navigateur n'appelle que /api/* sur le même domaine : pas de CORS,
  * et les clés Djelia / Anthropic restent sur le serveur Python.
  */
-const BACKEND_URL = process.env.BACKEND_URL ?? 'http://127.0.0.1:8000';
+// Backend déployé sur Railway ; en local, BACKEND_URL=http://127.0.0.1:8000 pour utiliser le serveur de sa machine.
+const BACKEND_URL = (process.env.BACKEND_URL ?? 'https://bubbly-elegance-production-150335c2.up.railway.app').replace(/\/$/, '');
 
 async function forward(request: Request, ctx: RouteContext<'/api/[...path]'>) {
   const { path } = await ctx.params;
@@ -27,7 +28,7 @@ async function forward(request: Request, ctx: RouteContext<'/api/[...path]'>) {
     });
   } catch {
     return Response.json(
-      { detail: 'Serveur AgriVoix injoignable. Lancez le backend Python (uvicorn server:app --port 8000).' },
+      { detail: 'Serveur AgriVoix injoignable. Vérifiez votre connexion et réessayez.' },
       { status: 502 },
     );
   }
