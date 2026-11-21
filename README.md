@@ -61,6 +61,9 @@ Sauf `health`, `localite` et `inscription`, chaque appel porte l'en-tête `X-Use
 | `GET /api/localite?lat=&lng=` | nom de la localité (OpenStreetMap) |
 | `POST /api/inscription` | `name`, `phone`, `lat`/`lng` (GPS) ou `place` → `{token, profile}` |
 | `GET /api/moi` | profil |
+| `POST /api/connexion` | téléphone + code à 4 chiffres → nouvelle session (5 essais, puis 15 min de blocage) |
+| `POST /api/deconnexion` | ferme la session de cet appareil |
+| `POST /api/code` | crée / change le code (comptes inscrits avant son introduction) |
 | `POST /api/assistant` | conseiller (texte, photo, vocal dioula / français / anglais) ; les vocaux sont archivés |
 | `POST /api/annonces` | `text` ou `audio` → audio stocké, transcription, analyse, matching |
 | `GET /api/annonces` | mes annonces + correspondance (nom, téléphone, lieu) + nb de messages |
@@ -72,6 +75,7 @@ Sauf `health`, `localite` et `inscription`, chaque appel porte l'en-tête `X-Use
 | Table | Contenu |
 |---|---|
 | `profiles` | nom, téléphone (unique), position GPS, localité, hash du jeton |
+| `sessions` | une session par appareil connecté (hash du jeton) ; le code est haché (bcrypt) dans `profiles` |
 | `annonces` | transcription fr (+ dioula), intention, produit, quantité, lieu, chemin de l'audio, statut, annonce liée |
 | `messages` | messages texte / vocaux entre les deux personnes d'une correspondance |
 | `assistant_vocaux` | questions vocales posées à l'assistant : audio, transcription dioula, traduction, réponse |
