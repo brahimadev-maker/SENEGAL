@@ -1,11 +1,14 @@
 import type { ReactNode } from 'react';
 
 /** Grand titre aligné à gauche (écrans principaux). */
-export function LargeTitle({ title, subtitle }: { title: string; subtitle?: string }) {
+export function LargeTitle({ title, subtitle, action }: { title: string; subtitle?: string; action?: ReactNode }) {
   return (
     <header className="large-title">
-      <h1>{title}</h1>
-      {subtitle ? <p>{subtitle}</p> : null}
+      <div className="large-title-text">
+        <h1>{title}</h1>
+        {subtitle ? <p>{subtitle}</p> : null}
+      </div>
+      {action}
     </header>
   );
 }

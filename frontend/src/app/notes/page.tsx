@@ -6,6 +6,7 @@ import { IoCall, IoChatbubble, IoEllipsisHorizontal, IoLogoWhatsapp, IoRefresh }
 
 import { AudioPlayer } from '@/components/AudioPlayer';
 import { Conversation } from '@/components/Conversation';
+import { AccountButton } from '@/components/AccountButton';
 import { LargeTitle } from '@/components/ScreenHeader';
 import { distanceKm, type VoiceNote } from '@/lib/types';
 import { useNotes } from '@/store/notes';
@@ -51,7 +52,7 @@ export default function NotesPage() {
   return (
     <div className="screen-col">
       <div className="scroll">
-        <LargeTitle title="Mes vocaux" />
+        <LargeTitle title="Mes vocaux" action={<AccountButton />} />
 
         {notes.length === 0 ? (
           <div className="empty">

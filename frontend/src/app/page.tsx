@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 
 import { MicButton } from '@/components/MicButton';
+import { AccountButton } from '@/components/AccountButton';
 import { LargeTitle } from '@/components/ScreenHeader';
 import { usePressToTalk } from '@/hooks/usePressToTalk';
 import { formatDuration } from '@/hooks/useVoiceRecorder';
@@ -35,7 +36,7 @@ export default function VocalPage() {
 
   return (
     <div className="vocal">
-      <LargeTitle title={`Bonjour ${profile.name.split(' ')[0]}`} subtitle={profile.place ?? undefined} />
+      <LargeTitle title={`Bonjour ${profile.name.split(' ')[0]}`} subtitle={profile.place ?? undefined} action={<AccountButton />} />
 
       <div className="segmented" role="tablist">
         {(['voice', 'text'] as const).map((m) => (

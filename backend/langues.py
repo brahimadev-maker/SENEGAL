@@ -6,7 +6,7 @@ et l'anglais mais pas le dioula : un vocal qu'il n'identifie pas clairement comm
 français ou anglais est traité comme du dioula et transcrit par Djelia.
 
 Variables d'environnement (facultatives) :
-  WHISPER_MODEL      taille du modèle (défaut : base ; small = plus précis, plus lent)
+  WHISPER_MODEL      taille du modèle (défaut : small ; base = plus rapide, moins précis)
   LANG_MIN_PROB      probabilité minimale pour retenir fr/en (défaut : 0.6)
 """
 
@@ -17,7 +17,7 @@ import threading
 DIOULA, FRANCAIS, ANGLAIS = "dyu", "fr", "en"
 LANGUES = {DIOULA: "Dioula", FRANCAIS: "Français", ANGLAIS: "English"}
 
-WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "base")
+WHISPER_MODEL = os.environ.get("WHISPER_MODEL", "small")
 MIN_PROB = float(os.environ.get("LANG_MIN_PROB", "0.6"))
 
 _model = None
@@ -59,9 +59,21 @@ def detecter_audio(wav_path: str) -> tuple[str, float]:
     return (best if p >= MIN_PROB else DIOULA), p
 
 
+# Vocabulaire agricole soufflé à Whisper : sans lui, les mots courts sont mal reconnus
+# (ex. « du riz » transcrit « durée »).
+_CONTEXTE = {
+    FRANCAIS: "Annonce agricole en Côte d'Ivoire : je vends, j'achète, je cherche du riz, du maïs, du manioc, "
+              "de l'igname, de la tomate, de la banane, du cacao, du café, de l'anacarde, en kilos, en sacs ou en tonnes.",
+    ANGLAIS: "Farming announcement: I sell, I buy, I am looking for rice, maize, corn, cassava, yam, tomatoes, "
+             "plantain, cocoa, coffee, cashew, in kilos, bags or tons.",
+}
+
+
 def transcrire(wav_path: str, langue: str) -> str:
     """Vocal français ou anglais -> texte."""
-    segments, _ = _whisper().transcribe(wav_path, language=langue, beam_size=5, vad_filter=True)
+    segments, _ = _whisper().transcribe(
+        wav_path, language=langue, beam_size=5, vad_filter=True, initial_prompt=_CONTEXTE.get(langue),
+    )
     return " ".join(s.text.strip() for s in segments).strip()
 
 

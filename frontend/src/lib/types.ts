@@ -11,6 +11,8 @@ export type Profile = {
   place: string | null;
   lat: number | null;
   lng: number | null;
+  /** Code de connexion défini (sinon, impossible de se reconnecter après déconnexion). */
+  has_pin?: boolean;
 };
 
 /** L'annonce d'en face trouvée par le matching, avec la personne qui l'a publiée. */

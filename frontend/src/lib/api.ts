@@ -67,10 +67,11 @@ const audioFile = (blob: Blob) => [blob, `vocal.${extFor(blob.type)}`] as const;
 export const localite = (lat: number, lng: number) =>
   request<{ place: string }>(`localite?lat=${lat}&lng=${lng}`);
 
-export function register(input: { name: string; phone: string; lat?: number; lng?: number; place?: string }) {
+export function register(input: { name: string; phone: string; pin: string; lat?: number; lng?: number; place?: string }) {
   const f = new FormData();
   f.set('name', input.name);
   f.set('phone', input.phone);
+  f.set('pin', input.pin);
   if (input.lat !== undefined && input.lng !== undefined) {
     f.set('lat', String(input.lat));
     f.set('lng', String(input.lng));
@@ -80,6 +81,22 @@ export function register(input: { name: string; phone: string; lat?: number; lng
 }
 
 export const me = () => request<Profile>('moi');
+
+/** Connexion sur un nouvel appareil : téléphone + code à 4 chiffres. */
+export function login(phone: string, pin: string) {
+  const f = new FormData();
+  f.set('phone', phone);
+  f.set('pin', pin);
+  return post<Session>('connexion', f);
+}
+
+export const logout = () => post<{ ok: boolean }>('deconnexion', new FormData());
+
+export function setPin(pin: string) {
+  const f = new FormData();
+  f.set('pin', pin);
+  return post<Profile>('code', f);
+}
 
 // --- Assistant ---------------------------------------------------------------
 

@@ -7,7 +7,10 @@ Lancement (depuis le dossier backend/) :
 Routes (sauf health, inscription et localite : en-tête `X-User-Token` obligatoire) :
   GET    /api/health                       état du serveur et de la configuration
   GET    /api/localite?lat=&lng=           nom de la localité d'une position GPS
-  POST   /api/inscription                  nom, téléphone, position -> jeton de session
+  POST   /api/inscription                  nom, téléphone, position, code -> jeton de session
+  POST   /api/connexion                    téléphone + code à 4 chiffres -> jeton de session
+  POST   /api/deconnexion                  ferme la session de cet appareil
+  POST   /api/code                         crée / change le code de connexion
   GET    /api/moi                          profil de l'utilisateur connecté
   POST   /api/assistant                    conseiller agricole (texte, photo ou vocal dioula / français / anglais)
   POST   /api/annonces                     annonce vocale/écrite : audio stocké, analyse, matching
@@ -226,7 +229,10 @@ def _db(call):
     try:
         return call()
     except db.DatabaseError as exc:
-        status = {"unauthorized": 401, "phone_taken": 409, "not_matched": 404, "config": 503}.get(exc.code, 502)
+        status = {
+            "unauthorized": 401, "phone_taken": 409, "not_matched": 404, "config": 503,
+            "bad_pin": 400, "bad_login": 403, "no_pin": 403, "locked": 429,
+        }.get(exc.code, 502)
         raise HTTPException(status, str(exc)) from exc
 
 
@@ -247,6 +253,13 @@ def _normalize_phone(raw: str) -> str:
     if not re.fullmatch(r"\+[0-9]{8,15}", phone):
         raise HTTPException(400, "Numéro de téléphone invalide.")
     return phone
+
+
+def _check_pin(pin: str) -> str:
+    pin = (pin or "").strip()
+    if not re.fullmatch(r"[0-9]{4}", pin):
+        raise HTTPException(400, "Le code doit comporter 4 chiffres.")
+    return pin
 
 
 def _reverse_geocode(lat: float, lng: float) -> str:
@@ -321,8 +334,10 @@ def inscription(
     lat: float | None = Form(None),
     lng: float | None = Form(None),
     place: str = Form(""),
+    pin: str = Form(...),
 ):
     name = name.strip()
+    pin = _check_pin(pin)
     if not 2 <= len(name) <= 80:
         raise HTTPException(400, "Indiquez votre nom (2 à 80 caractères).")
     phone = _normalize_phone(phone)
@@ -333,8 +348,30 @@ def inscription(
         raise HTTPException(400, "Activez la localisation ou indiquez votre ville / village.")
 
     token = db.new_token()
-    profile = _db(lambda: db.register(name, phone, lat, lng, place, token))
+    profile = _db(lambda: db.register(name, phone, lat, lng, place, token, pin))
     return {"token": token, "profile": profile}
+
+
+@app.post("/api/connexion")
+def connexion(phone: str = Form(...), pin: str = Form(...)):
+    """Téléphone + code à 4 chiffres -> nouvelle session pour cet appareil."""
+    phone, pin = _normalize_phone(phone), _check_pin(pin)
+    token = db.new_token()
+    profile = _db(lambda: db.login(phone, pin, token))
+    return {"token": token, "profile": profile}
+
+
+@app.post("/api/deconnexion")
+def deconnexion(x_user_token: str | None = Header(None)):
+    _db(lambda: db.logout(_token(x_user_token)))
+    return {"ok": True}
+
+
+@app.post("/api/code")
+def code(pin: str = Form(...), x_user_token: str | None = Header(None)):
+    """Crée ou change le code de connexion (comptes inscrits avant son introduction)."""
+    token, pin = _token(x_user_token), _check_pin(pin)
+    return _db(lambda: db.set_pin(token, pin))
 
 
 @app.get("/api/moi")

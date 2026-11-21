@@ -13,6 +13,9 @@ type Ctx = {
 
 const SessionContext = createContext<Ctx | null>(null);
 
+/** Données locales liées au compte (brouillons, cache des annonces, discussions avec l'assistant). */
+const LOCAL_KEYS = ['agrivoix.drafts.v1', 'agrivoix.annonces.v1', 'agrivoix.seen.v1', 'agrivoix.assistant.v2'];
+
 /** Utilisateur inscrit (jeton + profil gardés dans le navigateur). */
 export function SessionProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState(loadSession);
@@ -22,8 +25,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     setSession(s);
   }, []);
 
+  // Déconnexion : on efface aussi ce que l'app garde dans ce navigateur (téléphone partagé).
   const signOut = useCallback(() => {
     saveSession(null);
+    for (const key of LOCAL_KEYS) {
+      try {
+        localStorage.removeItem(key);
+      } catch {
+        // stockage indisponible
+      }
+    }
     setSession(null);
   }, []);
 

@@ -73,7 +73,30 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* --- En-têtes -------------------------------------------------------------- */
-.large-title { padding: calc(14px + env(safe-area-inset-top)) 20px 8px; }
+.large-title { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: calc(14px + env(safe-area-inset-top)) 20px 8px; }
+.large-title-text { min-width: 0; }
+.account-btn { flex: none; display: flex; margin: 4px -4px 0 0; padding: 2px; border-radius: 50%; color: var(--accent); }
+.account-btn:active { opacity: 0.5; }
+
+/* Feuille du bas (compte) */
+.sheet {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 11;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom));
+  border-radius: 14px 14px 0 0; background: var(--bg);
+  transform: translateY(100%); visibility: hidden;
+  transition: transform 0.25s ease, visibility 0.25s;
+}
+.sheet.open { transform: none; visibility: visible; }
+.sheet-grabber { width: 36px; height: 5px; margin: 0 auto 6px; border-radius: 3px; background: rgba(60, 60, 67, 0.3); }
+.sheet .group-note { margin-top: -4px; }
+.account-row span { width: 92px; flex: none; color: var(--muted); font-size: 15px; }
+.account-row strong { flex: 1; min-width: 0; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.btn.danger { background: var(--red-soft); color: var(--red); }
+.btn.danger:disabled { opacity: 0.4; }
+.btn.plain { background: transparent; color: var(--accent); height: 44px; }
+.pin-input { letter-spacing: 6px; }
+.signup .segmented { margin: 24px 0 0; }
 .large-title h1 { font-size: 34px; font-weight: 700; letter-spacing: -0.4px; line-height: 1.15; }
 .large-title p { margin-top: 2px; font-size: 15px; color: var(--muted); }
 

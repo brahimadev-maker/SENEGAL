@@ -21,7 +21,7 @@ SENEGAL/
 ## Langues
 
 La langue de chaque vocal est détectée automatiquement sur le serveur (faster-whisper, modèle
-`base`, sans clé API ; téléchargé au premier démarrage) :
+`small`, sans clé API ; téléchargé au premier démarrage) :
 
 - **français / anglais** : transcrits par Whisper ; Claude répond dans la même langue ; la réponse
   est lue par la synthèse vocale native du navigateur ;

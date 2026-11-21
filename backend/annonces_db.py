@@ -34,8 +34,12 @@ class DatabaseError(Exception):
 
 
 MESSAGES = {
-    "unauthorized": "Session expirée : inscrivez-vous à nouveau.",
-    "phone_taken": "Ce numéro de téléphone est déjà inscrit.",
+    "unauthorized": "Session expirée : reconnectez-vous.",
+    "phone_taken": "Ce numéro est déjà inscrit : connectez-vous avec votre code.",
+    "bad_pin": "Le code doit comporter 4 chiffres.",
+    "bad_login": "Numéro ou code incorrect.",
+    "no_pin": "Ce compte n'a pas encore de code : ouvrez l'application sur l'appareil de l'inscription et créez-en un.",
+    "locked": "Trop d'essais : réessayez dans 15 minutes.",
     "not_matched": "Cette annonce n'a pas (ou plus) de correspondance.",
 }
 
@@ -139,11 +143,27 @@ def with_audio_urls(items: list[dict]) -> list[dict]:
 
 # --- Utilisateurs ------------------------------------------------------------
 
-def register(name: str, phone: str, lat: float | None, lng: float | None, place: str, token: str) -> dict:
+def register(name: str, phone: str, lat: float | None, lng: float | None, place: str, token: str, pin: str) -> dict:
     return _rpc("register_user", {
         "p_name": name, "p_phone": phone, "p_lat": lat, "p_lng": lng,
-        "p_place": place, "p_token_hash": token_hash(token),
+        "p_place": place, "p_token_hash": token_hash(token), "p_pin": pin,
     })
+
+
+def login(phone: str, pin: str, token: str) -> dict:
+    """Ouvre une session sur cet appareil (5 essais, puis blocage de 15 minutes)."""
+    profile = _rpc("login_user", {"p_phone": phone, "p_pin": pin, "p_token_hash": token_hash(token)})
+    if not profile:
+        raise DatabaseError(MESSAGES["bad_login"], "bad_login")
+    return profile
+
+
+def set_pin(token: str, pin: str) -> dict:
+    return _rpc("set_pin", {"p_token_hash": token_hash(token), "p_pin": pin})
+
+
+def logout(token: str) -> None:
+    _rpc("logout_user", {"p_token_hash": token_hash(token)})
 
 
 def profile(token: str) -> dict:
