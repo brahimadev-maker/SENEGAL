@@ -2,7 +2,7 @@
  * Appels au backend Python (server.py), relayés par la route Next /api/[...path].
  * La session (jeton + profil) est gardée dans le navigateur après l'inscription.
  */
-import type { Kind, Partner, Product, Profile } from './types';
+import type { Kind, Lang, Partner, Product, Profile } from './types';
 
 export class ApiError extends Error {
   constructor(
@@ -84,7 +84,14 @@ export const me = () => request<Profile>('moi');
 // --- Assistant ---------------------------------------------------------------
 
 export type AssistantReply = {
+  lang: Lang;
+  /** Réponse dans la langue de l'utilisateur (français pour le dioula, lu ensuite en dioula). */
+  answer: string;
   answer_fr: string;
+  /** Transcription du vocal dans sa langue d'origine. */
+  question?: string;
+  /** Réponse à lire par la synthèse vocale du navigateur (français / anglais). */
+  speak?: boolean;
   answer_bam?: string;
   audio_b64?: string;
   question_bam?: string;

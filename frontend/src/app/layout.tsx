@@ -5,7 +5,7 @@ import './globals.css';
 
 export const metadata: Metadata = {
   title: 'AgriVoix',
-  description: 'Vendez, achetez et posez vos questions agricoles à la voix, en dioula ou en français.',
+  description: 'Vendez, achetez et posez vos questions agricoles à la voix, en dioula, en français ou en anglais.',
 };
 
 export const viewport: Viewport = {

@@ -1,6 +1,6 @@
 # AgriVoix
 
-Annonces agricoles à la voix (dioula / français), mise en relation acheteurs–vendeurs,
+Annonces agricoles à la voix (dioula / français / anglais), mise en relation acheteurs–vendeurs,
 et assistant agricole.
 
 ```
@@ -8,6 +8,7 @@ SENEGAL/
 ├── backend/                  API Python (FastAPI)
 │   ├── server.py             routes HTTP
 │   ├── pipeline.py           chaîne vocale : Djelia ASR → traduction → Claude → traduction → voix
+│   ├── langues.py            détection de la langue parlée, transcription fr/en (Whisper)
 │   ├── glossaire.py          dictionnaire agricole français–dioula
 │   ├── dictionnaire_agricole.json
 │   ├── annonces_db.py        accès Supabase (utilisateurs, annonces, messages, audios)
@@ -16,6 +17,18 @@ SENEGAL/
 │   └── venv/                 environnement Python (non versionné)
 └── frontend/                 application web (Next.js)
 ```
+
+## Langues
+
+La langue de chaque vocal est détectée automatiquement sur le serveur (faster-whisper, modèle
+`base`, sans clé API ; téléchargé au premier démarrage) :
+
+- **français / anglais** : transcrits par Whisper ; Claude répond dans la même langue ; la réponse
+  est lue par la synthèse vocale native du navigateur ;
+- **tout le reste = dioula** : transcription Djelia (sunjata-1), traduction, réponse lue par la voix Djelia.
+
+Les annonces sont toujours enregistrées avec une version française (pour la mise en relation).
+Variables facultatives : `WHISPER_MODEL` (base, small…), `LANG_MIN_PROB` (défaut 0.6).
 
 ## Lancer en local
 
@@ -48,7 +61,7 @@ Sauf `health`, `localite` et `inscription`, chaque appel porte l'en-tête `X-Use
 | `GET /api/localite?lat=&lng=` | nom de la localité (OpenStreetMap) |
 | `POST /api/inscription` | `name`, `phone`, `lat`/`lng` (GPS) ou `place` → `{token, profile}` |
 | `GET /api/moi` | profil |
-| `POST /api/assistant` | conseiller (texte, photo, vocal dioula) ; les vocaux sont archivés |
+| `POST /api/assistant` | conseiller (texte, photo, vocal dioula / français / anglais) ; les vocaux sont archivés |
 | `POST /api/annonces` | `text` ou `audio` → audio stocké, transcription, analyse, matching |
 | `GET /api/annonces` | mes annonces + correspondance (nom, téléphone, lieu) + nb de messages |
 | `DELETE /api/annonces/{id}` | annule ; la correspondance d'en face repart en attente |
@@ -79,3 +92,5 @@ clé secrète du backend, qui vérifient le jeton et les droits (ses annonces, s
 - Les nouveautés (correspondances, messages) sont récupérées par interrogation régulière
   (10 s pour la liste, 4 s dans une conversation), pas en temps réel.
 - Les discussions avec l'assistant restent dans le navigateur (seuls les vocaux sont archivés).
+- La langue d'origine d'une annonce n'est pas stockée en base : seule sa version française
+  (et la transcription dioula le cas échéant) l'est ; l'audio reste disponible.

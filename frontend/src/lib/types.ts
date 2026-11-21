@@ -52,6 +52,10 @@ export type VoiceNote = {
   seen: boolean;
 };
 
+/** Langues reconnues : dioula (Djelia), français et anglais (Whisper côté serveur). */
+export type Lang = 'dyu' | 'fr' | 'en';
+export const LANG_LABEL: Record<Lang, string> = { dyu: 'Dioula', fr: 'Français', en: 'English' };
+
 export type ChatMessage = {
   id: string;
   role: 'user' | 'assistant';
@@ -59,6 +63,8 @@ export type ChatMessage = {
   text?: string;
   /** Texte secondaire : transcription d'un vocal, ou version dioula de la réponse. */
   caption?: string;
+  /** Langue détectée (vocal de l'utilisateur, réponse de l'assistant). */
+  lang?: Lang;
   imageId?: string;
   /** Audio local (IndexedDB) ou distant (lien signé). */
   audioId?: string;

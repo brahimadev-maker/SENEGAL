@@ -9,12 +9,16 @@ Routes (sauf health, inscription et localite : en-tête `X-User-Token` obligatoi
   GET    /api/localite?lat=&lng=           nom de la localité d'une position GPS
   POST   /api/inscription                  nom, téléphone, position -> jeton de session
   GET    /api/moi                          profil de l'utilisateur connecté
-  POST   /api/assistant                    conseiller agricole (texte, photo ou vocal dioula)
+  POST   /api/assistant                    conseiller agricole (texte, photo ou vocal dioula / français / anglais)
   POST   /api/annonces                     annonce vocale/écrite : audio stocké, analyse, matching
   GET    /api/annonces                     mes annonces et leur correspondance
   DELETE /api/annonces/{id}                annule une annonce
   GET    /api/annonces/{id}/messages       conversation avec la correspondance
   POST   /api/annonces/{id}/messages       envoie un message (texte ou vocal)
+
+Langues : la langue d'un vocal est détectée automatiquement (langues.py). Le dioula passe
+par Djelia (ASR, traduction, voix) ; le français et l'anglais sont transcrits sur ce serveur
+par Whisper, et la réponse vocale est lue par la synthèse vocale native du navigateur.
 
 Les clés API restent sur ce serveur : le navigateur n'appelle que ces routes.
 """
@@ -35,9 +39,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 import annonces_db as db
 import glossaire
+import langues
 import pipeline
 
 app = FastAPI(title="AgriVoix API")
+langues.precharger()
 
 # En dev, Next.js relaie /api vers ce serveur (même origine). CORS utile seulement
 # si le front appelle directement le port 8000.
@@ -65,9 +71,11 @@ ANALYZE_PROMPT = (
     "le produit concerné parmi la liste fournie (ou \"Autre\"), la quantité telle "
     "qu'énoncée (ex. \"500 kg\", \"2 tonnes\") et le lieu (ville ou village) s'il est cité. "
     "Mets une chaîne vide pour une information absente. "
-    "Pour une annonce vocale, tu reçois la transcription dioula et une traduction automatique "
-    "qui confond souvent les noms de produits : la transcription dioula et le glossaire font foi. "
-    "Dans `french`, réécris l'annonce en une phrase française correcte et fidèle, à la première personne."
+    "L'annonce peut être en français, en anglais ou en dioula. Pour un vocal dioula, tu reçois "
+    "la transcription dioula et une traduction automatique qui confond souvent les noms de produits : "
+    "la transcription dioula et le glossaire font foi. "
+    "Dans `french`, réécris l'annonce en une phrase française correcte et fidèle, à la première personne "
+    "(traduis-la si elle est en anglais)."
 )
 
 ANALYZE_SCHEMA = {
@@ -136,6 +144,49 @@ def _transcribe_to_french(wav_path: str) -> tuple[str, str]:
     text_bam = pipeline.transcribe_dioula(wav_path)
     text_bam = glossaire.normaliser_dioula(text_bam, pipeline.DICTIONNAIRE)
     return text_bam, pipeline.translate(text_bam, "bam_Latn", "fra_Latn")
+
+
+def _lang_param(lang: str) -> str | None:
+    """Langue imposée par l'application, ou None pour la détection automatique."""
+    lang = (lang or "auto").strip().lower()
+    if lang == "auto":
+        return None
+    if lang not in langues.LANGUES:
+        raise HTTPException(400, "Langue inconnue (auto, dyu, fr ou en).")
+    return lang
+
+
+def _transcribe(wav_path: str, forced: str | None = None) -> dict:
+    """Vocal -> {lang, transcript (langue d'origine), french (texte transmis à Claude)}.
+
+    Langue détectée par Whisper : français / anglais transcrits par Whisper,
+    tout le reste traité comme du dioula (Djelia).
+    """
+    lang = forced
+    if lang is None:
+        try:
+            lang, _ = langues.detecter_audio(wav_path)
+        except Exception as exc:  # noqa: BLE001 — sans détection, on garde le parcours dioula
+            print(f"[langues] détection impossible : {exc}")
+            lang = langues.DIOULA
+    if lang == langues.DIOULA:
+        text_bam, text_fr = _transcribe_to_french(wav_path)
+        return {"lang": lang, "transcript": text_bam, "french": text_fr}
+    try:
+        text = langues.transcrire(wav_path, lang)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(502, f"Transcription impossible : {exc}") from exc
+    if not text:
+        raise HTTPException(422, "Je n'ai rien entendu. Parlez plus près du micro et réessayez.")
+    return {"lang": lang, "transcript": text, "french": text}
+
+
+def _reply_language(lang: str) -> str:
+    if lang == langues.ANGLAIS:
+        return ("\n\nL'utilisateur parle anglais : réponds directement en anglais simple, sans "
+                "mentionner la langue (mêmes règles : 3 à 5 phrases courtes, sans listes ni markdown, "
+                "ta réponse sera lue à voix haute).")
+    return ""
 
 
 def _speak(answer_fr: str) -> tuple[str, str]:
@@ -251,6 +302,8 @@ def health():
         "ok": True,
         "model": pipeline.CLAUDE_MODEL,
         "asr_model": pipeline.ASR_MODEL,
+        "whisper_model": langues.WHISPER_MODEL,
+        "languages": list(langues.LANGUES),
         "ffmpeg": bool(shutil.which("ffmpeg")),
         "database_configured": db.is_configured(),
     }
@@ -296,6 +349,7 @@ def assistant(
     history: str = Form("[]"),
     text: str = Form(""),
     voice_reply: bool = Form(False),
+    lang: str = Form("auto"),
     audio: UploadFile | None = File(None),
     image: UploadFile | None = File(None),
     x_user_token: str | None = Header(None),
@@ -303,26 +357,33 @@ def assistant(
     """Conseiller agricole.
 
     - `history` : JSON [{role: "user"|"assistant", text}] des échanges précédents.
-    - `text` : question écrite en français.
-    - `audio` : question vocale en dioula -> chaîne complète, réponse vocale en dioula.
+    - `text` : question écrite (français ou anglais, détecté).
+    - `audio` : question vocale, langue détectée (dioula, français ou anglais).
+      Dioula : chaîne Djelia complète, réponse vocale dioula (`audio_b64`).
+      Français / anglais : réponse dans la même langue, lue par le navigateur (`speak`).
       Le vocal et ses transcriptions sont enregistrés (Supabase) pour l'utilisateur connecté.
     - `image` : photo de plantation analysée par Claude.
-    - `voice_reply` : produire aussi la réponse vocale dioula pour une question écrite.
+    - `voice_reply` : lire aussi la réponse d'une question écrite.
+    - `lang` : auto (défaut), dyu, fr ou en pour imposer la langue.
     """
     if not text.strip() and audio is None and image is None:
         raise HTTPException(400, "Envoyez un texte, une photo ou un vocal.")
 
-    result: dict = {}
-    question_fr = text.strip()
+    forced = _lang_param(lang)
+    result: dict = {"lang": forced or (langues.detecter_texte(text) if text.strip() else langues.FRANCAIS)}
+    question = text.strip()
     voice: Audio | None = None
 
     try:
         if audio is not None:
             voice = Audio(audio)
-            text_bam, translated = _transcribe_to_french(voice.wav)
-            result["question_bam"] = text_bam
-            result["question_fr"] = translated
-            question_fr = (question_fr + "\n" + translated).strip()
+            heard = _transcribe(voice.wav, forced)
+            result["lang"] = heard["lang"]
+            result["question"] = heard["transcript"]
+            if heard["lang"] == langues.DIOULA:
+                result["question_bam"] = heard["transcript"]
+                result["question_fr"] = heard["french"]
+            question = (question + "\n" + heard["french"]).strip()
             voice_reply = True
 
         content: list = []
@@ -337,7 +398,7 @@ def assistant(
                     "data": base64.standard_b64encode(_read_upload(image)).decode("ascii"),
                 },
             })
-        content.append({"type": "text", "text": question_fr or "Que vois-tu sur cette photo de ma plantation ?"})
+        content.append({"type": "text", "text": question or "Que vois-tu sur cette photo de ma plantation ?"})
 
         messages = []
         try:
@@ -354,32 +415,39 @@ def assistant(
             response = pipeline.claude.messages.create(
                 model=pipeline.CLAUDE_MODEL,
                 max_tokens=ANSWER_MAX_TOKENS,
-                system=pipeline.SYSTEM_PROMPT + WEB_HINT,
+                system=pipeline.SYSTEM_PROMPT + WEB_HINT + _reply_language(result["lang"]),
                 output_config={"effort": "low"},
                 messages=messages,
             )
         except Exception as exc:  # noqa: BLE001
             raise _claude_errors(exc) from exc
 
-        result["answer_fr"] = _text_of(response)
+        result["answer"] = _text_of(response)
+        result["answer_fr"] = result["answer"]  # ancien nom du champ (front pas encore redéployé)
 
         # Archive du vocal (audio + transcriptions) : n'empêche jamais la réponse.
         if voice is not None and x_user_token:
             try:
                 uid = db.profile(x_user_token)["id"]
                 path = db.upload_audio("assistant", uid, voice.mp3)
-                db.save_assistant_vocal(x_user_token, path, result["question_bam"], result["question_fr"], result["answer_fr"])
+                db.save_assistant_vocal(
+                    x_user_token, path, result.get("question_bam", ""),
+                    result.get("question_fr") or result["question"], result["answer"],
+                )
             except Exception as exc:  # noqa: BLE001
                 result["save_error"] = f"Vocal non archivé : {exc}"
     finally:
         if voice is not None:
             voice.close()
 
-    if voice_reply and result["answer_fr"]:
-        try:
-            result["answer_bam"], result["audio_b64"] = _speak(result["answer_fr"])
-        except Exception as exc:  # noqa: BLE001 — la réponse écrite reste utile
-            result["voice_error"] = f"Réponse vocale indisponible : {exc}"
+    if voice_reply and result["answer"]:
+        if result["lang"] == langues.DIOULA:
+            try:
+                result["answer_bam"], result["audio_b64"] = _speak(result["answer"])
+            except Exception as exc:  # noqa: BLE001 — la réponse écrite reste utile
+                result["voice_error"] = f"Réponse vocale indisponible : {exc}"
+        else:
+            result["speak"] = True  # lue par la synthèse vocale native du navigateur
 
     return result
 
@@ -389,20 +457,27 @@ def assistant(
 @app.post("/api/annonces")
 def create_annonce(
     text: str = Form(""),
+    lang: str = Form("auto"),
     audio: UploadFile | None = File(None),
     x_user_token: str | None = Header(None),
 ):
-    """Vocal (dioula) ou texte (français) : audio stocké, transcription, analyse, enregistrement, matching."""
+    """Vocal ou texte (dioula, français ou anglais) : audio stocké, transcription, analyse, enregistrement, matching."""
     token = _token(x_user_token)
     me = _db(lambda: db.profile(token))  # vérifie la session avant de payer transcription + analyse
     if audio is None and not text.strip():
         raise HTTPException(400, "Annonce vide.")
 
+    forced = _lang_param(lang)
     transcript_bam, audio_path = "", ""
     announce = text.strip()
+    detected = forced or (langues.detecter_texte(announce) if announce else langues.FRANCAIS)
+    original = announce
     if audio is not None:
         with Audio(audio) as voice:
-            transcript_bam, announce = _transcribe_to_french(voice.wav)
+            heard = _transcribe(voice.wav, forced)
+            detected, original, announce = heard["lang"], heard["transcript"], heard["french"]
+            if detected == langues.DIOULA:
+                transcript_bam = original
             audio_path = _db(lambda: db.upload_audio("annonces", me["id"], voice.mp3))
 
     info = _analyze(announce, transcript_bam)
@@ -413,12 +488,14 @@ def create_annonce(
         product=info["product"],
         quantity=info.get("quantity", ""),
         place=info.get("place", ""),
-        # Texte écrit : tel quel. Vocal : traduction corrigée à l'aide du dioula et du glossaire.
-        transcript_fr=(info.get("french") or announce) if audio is not None else announce,
+        # Français écrit : tel quel. Vocal ou anglais : version française corrigée par l'analyse
+        # (pour le dioula, à l'aide de la transcription et du glossaire).
+        transcript_fr=announce if audio is None and detected == langues.FRANCAIS else (info.get("french") or announce),
         transcript_bam=transcript_bam,
         audio_path=audio_path,
     ))
-    return _db(lambda: db.with_audio_urls([annonce])[0])
+    annonce = _db(lambda: db.with_audio_urls([annonce])[0])
+    return {**annonce, "lang": detected, "transcript": original}
 
 
 @app.get("/api/annonces")

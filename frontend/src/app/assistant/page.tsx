@@ -32,6 +32,8 @@ export default function AssistantPage() {
   const [image, setImage] = useState<{ blob: Blob; url: string } | null>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [voiceReply, setVoiceReply] = useState(() => loadJSON<boolean>(VOICE_KEY, false));
+  /** Réponse française / anglaise à lire automatiquement dès son affichage. */
+  const [autoSpeakId, setAutoSpeakId] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -75,9 +77,12 @@ export default function AssistantPage() {
 
     try {
       const r = await askAssistant({ history, text: payload.text, image: payload.image, audio: payload.audio, voiceReply });
-      if (r.question_fr) patchMessage(convId, userMsgId, { caption: r.question_fr });
+      // Vocal : transcription (traduite en français pour le dioula) et langue détectée.
+      const heard = r.question_fr ?? r.question;
+      if (heard) patchMessage(convId, userMsgId, { caption: heard, lang: r.lang });
       const replyAudio = r.audio_b64 ? await putBlob(base64ToBlob(r.audio_b64, 'audio/mpeg')) : undefined;
-      append(convId, { role: 'assistant', text: r.answer_fr, audioId: replyAudio, caption: r.voice_error });
+      const replyId = append(convId, { role: 'assistant', text: r.answer ?? r.answer_fr, lang: r.lang, audioId: replyAudio, caption: r.voice_error });
+      if (r.speak) setAutoSpeakId(replyId);
     } catch (e) {
       append(convId, { role: 'assistant', error: true, text: e instanceof Error ? e.message : 'Une erreur est survenue.' });
     } finally {
@@ -147,8 +152,8 @@ export default function AssistantPage() {
               className={`nav-btn ${voiceReply ? 'on' : 'off'}`}
               onClick={toggleVoice}
               aria-pressed={voiceReply}
-              aria-label="Réponses lues en dioula"
-              title={voiceReply ? 'Réponses lues en dioula : activé' : 'Réponses lues en dioula : désactivé'}
+              aria-label="Réponses lues à voix haute"
+              title={voiceReply ? 'Réponses lues à voix haute : activé' : 'Réponses lues à voix haute : désactivé'}
             >
               {voiceReply ? <IoVolumeHighOutline size={22} /> : <IoVolumeMuteOutline size={22} />}
             </button>
@@ -162,7 +167,7 @@ export default function AssistantPage() {
       {messages.length === 0 && !thinking ? (
         <div className="a-empty">
           <h2>Comment puis-je vous aider ?</h2>
-          <p>Posez une question, envoyez une photo ou maintenez le micro pour parler en dioula.</p>
+          <p>Posez une question, envoyez une photo ou maintenez le micro pour parler en dioula, en français ou en anglais.</p>
           <div className="group suggestions">
             {SUGGESTIONS.map((s) => (
               <div key={s} className="row">
@@ -177,7 +182,7 @@ export default function AssistantPage() {
         <div className="scroll">
           <div className="chat-list">
             {messages.map((m) => (
-              <Bubble key={m.id} m={m} />
+              <Bubble key={m.id} m={m} autoSpeak={m.id === autoSpeakId} />
             ))}
             {thinking && <TypingBubble label="L’assistant réfléchit" />}
             <div ref={endRef} />
