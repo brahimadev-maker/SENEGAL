@@ -1,0 +1,479 @@
+% Rapport technique AgriVoix
+% Compilation : pdfLaTeX (recommandé, Overleaf par défaut) ou XeLaTeX.
+% Mise en forme : Times New Roman 12 pt, interligne 1,5, sortie PDF 1.5.
+\documentclass[12pt,a4paper]{article}
+
+\usepackage{iftex}
+\ifPDFTeX
+  \pdfminorversion=5
+  \usepackage[T1]{fontenc}
+  \usepackage[utf8]{inputenc}
+  \usepackage{newtxtext,newtxmath} % police Times
+  \usepackage[safe]{tipa}          % caractères dioula : ɛ, ɔ, ɲ
+  \DeclareUnicodeCharacter{025B}{\textepsilon}
+  \DeclareUnicodeCharacter{0254}{\textopeno}
+  \DeclareUnicodeCharacter{0272}{\textltailn}
+\else
+  \usepackage{fontspec}
+  \IfFontExistsTF{Times New Roman}{\setmainfont{Times New Roman}}{\setmainfont{TeX Gyre Termes}}
+\fi
+
+\usepackage[french]{babel}
+% babel-french met un tiret long devant chaque élément de liste : on le désactive.
+\frenchsetup{StandardLists=true}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{tikz}
+\usetikzlibrary{positioning,arrows.meta,babel}
+\usepackage{enumitem}
+\setlist{itemsep=2pt,topsep=4pt}
+\setlist[itemize]{label=-} % puces : tiret simple (touche 6)
+\usepackage{fancyvrb}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{agri}{HTML}{1F8A4C}
+\newcolumntype{L}{>{\raggedright\arraybackslash}X}
+
+\title{\textbf{AgriVoix}\\[4pt]\large Rapport technique\\[2pt]
+\normalsize Plateforme vocale de mise en relation agricole en dioula, français et anglais}
+\author{Équipe AgriVoix}
+\date{Novembre 2026}
+
+\begin{document}
+
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+AgriVoix permet à des producteurs et acheteurs agricoles de Côte d'Ivoire de publier une annonce
+de vente ou d'achat en parlant, en dioula, en français ou en anglais. L'application transcrit le
+vocal, en comprend l'intention (vendre ou acheter, produit, quantité, lieu), met automatiquement en
+relation l'offre et la demande, puis ouvre une conversation entre les deux personnes. Un assistant
+agricole répond aussi aux questions posées à la voix ou par photo, dans la langue de l'utilisateur.
+Ce rapport décrit l'architecture, la chaîne de traitement de la parole et, en particulier, la
+spécialisation agricole des modèles Djelia à l'aide d'un dictionnaire agricole français-dioula
+construit pour le projet, qui évite que le système se comporte comme un traducteur généraliste.
+Il présente enfin la feuille de route : intégrer progressivement les langues locales africaines,
+à commencer par le wolof dès décembre 2026, pour faire d'AgriVoix l'application de référence de la
+vente agricole en Afrique.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{Contexte et objectifs}
+
+Une grande partie des petits producteurs vivriers d'Afrique de l'Ouest s'exprime d'abord dans une
+langue nationale comme le dioula, et lit ou écrit peu le français. Les plateformes de vente en ligne
+reposent pourtant sur des formulaires écrits. AgriVoix part du principe inverse : la voix est
+l'interface principale.
+
+Les objectifs fixés sont les suivants :
+\begin{itemize}
+  \item publier une annonce en maintenant un seul bouton, sans rien saisir ;
+  \item comprendre le dioula, le français et l'anglais, sans que l'utilisateur ait à choisir sa langue ;
+  \item reconnaître correctement le vocabulaire agricole local (noms de cultures, de produits) ;
+  \item mettre en relation automatiquement un vendeur et un acheteur du même produit ;
+  \item permettre aux deux parties d'échanger (appel, WhatsApp, messages écrits et vocaux) ;
+  \item offrir un conseiller agricole accessible à l'oral et par photo ;
+  \item ne rien simuler : comptes, audios, annonces et messages sont réellement stockés.
+\end{itemize}
+
+\section{Architecture générale}
+
+Le système est découpé en trois parties indépendantes (figure~\ref{fig:archi}).
+
+\begin{figure}[h]
+\centering
+\begin{tikzpicture}[
+  node distance=1.1cm and 1.4cm,
+  box/.style={draw=agri, rounded corners, thick, align=center, minimum width=3.6cm, minimum height=1.1cm, font=\small},
+  ext/.style={draw=gray, rounded corners, align=center, minimum width=3.2cm, minimum height=0.9cm, font=\small},
+  arr/.style={-{Stealth}, thick}
+]
+\node[box] (front) {Application web\\Next.js (Vercel)};
+\node[box, right=of front] (back) {API Python\\FastAPI (Railway)};
+\node[box, right=of back] (db) {Supabase\\PostgreSQL + Stockage};
+\node[ext, below=of front] (whisper) {Whisper (local)\\fr / en};
+\node[ext, below=of back] (djelia) {Djelia\\ASR, traduction, voix};
+\node[ext, below=of db] (claude) {Claude\\analyse, conseils};
+\draw[arr] (front) -- node[above, font=\scriptsize]{HTTPS} (back);
+\draw[arr] (back) -- node[above, font=\scriptsize]{RPC} (db);
+\draw[arr] (back) -- (whisper);
+\draw[arr] (back) -- (djelia);
+\draw[arr] (back) -- (claude);
+\end{tikzpicture}
+\caption{Architecture d'AgriVoix}
+\label{fig:archi}
+\end{figure}
+
+\begin{description}
+  \item[Application web.] Next.js 16 et React, pensée pour le téléphone, déployée sur Vercel.
+  Le navigateur n'appelle qu'une route relais \texttt{/api/*} du même domaine, qui transmet les
+  requêtes au serveur Python. Aucune clé d'API n'est exposée côté client.
+  \item[Serveur Python.] FastAPI et uvicorn, déployé sur Railway avec ffmpeg. Il orchestre la chaîne
+  vocale, les appels aux modèles et l'accès à la base de données.
+  \item[Base de données.] Supabase (PostgreSQL et stockage de fichiers) pour les profils, sessions,
+  annonces, messages et fichiers audio.
+\end{description}
+
+Les services externes sont Djelia (reconnaissance vocale, traduction et synthèse vocale en dioula),
+l'API Claude d'Anthropic (modèle \texttt{claude-haiku-5-5}, analyse des annonces et conseils) et
+OpenStreetMap Nominatim (nom de la localité à partir des coordonnées GPS). La transcription du
+français et de l'anglais est faite sur le serveur lui-même par Whisper, sans service tiers.
+
+\section{Chaîne de traitement de la parole}
+
+\subsection{Capture et préparation de l'audio}
+
+L'enregistrement suit le principe du talkie-walkie : l'utilisateur maintient le bouton micro, parle,
+puis relâche, et le vocal part automatiquement. Les enregistrements de moins de 0,7 seconde sont
+ignorés (appui accidentel). Le navigateur produit selon les appareils du WebM, de l'OGG ou du MP4.
+
+À la réception, un seul appel à ffmpeg produit deux fichiers :
+\begin{itemize}
+  \item un WAV mono à 16 kHz, format attendu par les modèles de reconnaissance vocale ;
+  \item un MP3 mono à 64 kbit/s, conservé dans le stockage Supabase pour la réécoute.
+\end{itemize}
+
+\subsection{Détection automatique de la langue}
+
+L'utilisateur ne choisit pas sa langue : elle est détectée sur l'audio. Le serveur utilise
+faster-whisper (modèle \texttt{small}, exécuté en local sur le processeur, quantifié en int8).
+Whisper reconnaît le français et l'anglais mais ne connaît pas le dioula. La règle de décision
+exploite cette propriété :
+\begin{itemize}
+  \item si la probabilité du français ou de l'anglais dépasse 0,6, le vocal est traité dans cette langue ;
+  \item sinon, il est considéré comme du dioula et confié à Djelia.
+\end{itemize}
+Le seuil est réglable par variable d'environnement. Pour les questions écrites, une détection
+lexicale simple distingue le français de l'anglais.
+
+\subsection{Parcours dioula}
+
+\begin{enumerate}
+  \item Transcription du vocal par le modèle de reconnaissance vocale Djelia \texttt{sunjata-1}.
+  \item Normalisation du texte dioula à l'aide du dictionnaire agricole (section~\ref{sec:dico}).
+  \item Traduction dioula vers français par le modèle Djelia \texttt{banjugu-1}.
+  \item Analyse ou réponse par Claude, avec le glossaire agricole dans ses instructions.
+  \item Pour l'assistant : traduction de la réponse vers le dioula, puis synthèse vocale par le
+  modèle Djelia \texttt{jifili-1} (voix \og moussa \fg{}).
+\end{enumerate}
+
+\subsection{Parcours français et anglais}
+
+Le vocal est transcrit par Whisper. Pour fiabiliser les mots courts, le modèle reçoit un contexte
+agricole (liste de produits, unités) : sans lui, \og du riz \fg{} était transcrit \og durée \fg{}.
+Claude répond dans la langue de l'utilisateur, et la réponse est lue par la synthèse vocale native
+du navigateur (Web Speech API), sans coût serveur.
+
+\section{Spécialisation agricole de Djelia}
+\label{sec:dico}
+
+\subsection{Problème : un modèle généraliste}
+
+Les modèles Djelia sont entraînés pour le dioula et le bambara en général. Utilisés tels quels sur
+des annonces agricoles, ils commettent des erreurs qui rendent l'annonce inutilisable. Le cas le plus
+fréquent observé pendant les tests est le mot \textit{kaba} (maïs), traduit selon les phrases par
+\og tabac \fg{}, \og cacao \fg{}, \og chou \fg{} ou \og canne à sucre \fg{}. Une erreur de ce type
+fausse directement la mise en relation : un vendeur de maïs serait présenté à un acheteur de cacao.
+
+\subsection{Solution : un dictionnaire agricole personnalisé}
+
+Nous avons construit un dictionnaire agricole français-dioula propre au projet, ciblé sur la
+Côte d'Ivoire et établi à partir d'un lexique dioula-français. Il recense 82 termes, dont les
+principales cultures, et 39 variantes orthographiques ou régionales rattachées à leur forme de
+référence (tableau~\ref{tab:dico}).
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lc}
+\toprule
+Catégorie & Nombre d'entrées \\
+\midrule
+Céréales & 8 \\
+Tubercules & 6 \\
+Légumineuses & 6 \\
+Légumes & 18 \\
+Fruits & 17 \\
+Cultures industrielles (cacao, café, anacarde\dots) & 9 \\
+Plantes aromatiques & 4 \\
+Vocabulaire agricole (champ, récolte, feuille\dots) & 6 \\
+Couleurs (description des maladies, de la maturité) & 8 \\
+\midrule
+\textbf{Total} & \textbf{82} \\
+\bottomrule
+\end{tabular}
+\caption{Composition du dictionnaire agricole}
+\label{tab:dico}
+\end{table}
+
+Chaque entrée associe le terme français, sa forme dioula de référence et ses variantes, par exemple :
+\begin{itemize}
+  \item Maïs : \textit{kaba}, variantes \textit{mɔnsɔ}, \textit{mɔnɔnɔ}, \textit{maanɔ} ;
+  \item Riz : \textit{malo}, variante \textit{kini} ;
+  \item Sorgho : \textit{binbiri}, variante \textit{kɛnde}.
+\end{itemize}
+
+\subsection{Intégration à trois niveaux de la chaîne}
+
+Le dictionnaire spécialise la chaîne Djelia sur le domaine agricole à trois endroits.
+
+\begin{enumerate}
+  \item \textbf{Avant la traduction : normalisation.} Chaque variante reconnue dans la transcription
+  Djelia est remplacée par la forme de référence, avec une recherche par mots entiers, insensible à
+  la casse, qui traite d'abord les expressions les plus longues. Le modèle de traduction reçoit ainsi
+  toujours le terme qu'il connaît le mieux.
+  \item \textbf{Pendant la génération : glossaire injecté.} La liste complète des correspondances
+  français-dioula est ajoutée aux instructions de Claude, avec la consigne de ne jamais confondre
+  une plante avec un plat cuisiné. Les réponses de l'assistant, puis leur traduction en dioula,
+  emploient donc les bons noms de cultures.
+  \item \textbf{Après la traduction : correction de l'annonce.} Pour une annonce vocale, Claude reçoit
+  à la fois la transcription dioula et la traduction automatique, avec la consigne que la
+  transcription dioula et le glossaire font foi en cas de désaccord. Il produit une version française
+  corrigée et les champs structurés de l'annonce.
+\end{enumerate}
+
+\subsection{Résultat}
+
+Sur la phrase de test \og N bɛ kaba kilo kɛmɛ duuru feere \fg{} (je vends cinq cents kilos de maïs),
+la traduction automatique seule proposait un autre produit. Avec la chaîne spécialisée, l'annonce
+est correctement classée en vente de maïs. Le dictionnaire transforme ainsi un traducteur généraliste
+en outil adapté au vocabulaire des marchés agricoles, sans dépendre de la qualité de la traduction
+mot à mot.
+
+Ce dispositif est également facile à enrichir : ajouter une culture ou une variante régionale
+consiste à modifier un fichier JSON, sans réentraîner aucun modèle.
+
+\section{Analyse des annonces et mise en relation}
+
+\subsection{Extraction structurée}
+
+Chaque annonce, vocale ou écrite, est analysée par Claude avec une sortie contrainte par un schéma
+JSON, ce qui garantit un résultat exploitable sans traitement de texte fragile :
+
+\begin{Verbatim}[fontsize=\small]
+{ "kind":     "offer" | "need",      vente ou recherche
+  "product":  Maïs, Manioc, Riz, Tomate, Igname, Banane,
+              Cacao, Café ou Autre,
+  "quantity": "500 kg",
+  "place":    "Korhogo",
+  "french":   version française corrigée de l'annonce }
+\end{Verbatim}
+
+Une annonce en anglais est traduite en français dans le champ \texttt{french}, afin que tous les
+utilisateurs puissent la lire et qu'elle participe à la même mise en relation.
+
+\subsection{Algorithme de mise en relation}
+
+La mise en relation est exécutée dans la base de données, dans la même transaction que
+l'enregistrement de l'annonce. Une annonce en attente est associée à la plus ancienne annonce en
+attente qui porte sur le même produit, avec l'intention opposée (vente face à achat) et publiée par
+un autre utilisateur. Les annonces de catégorie \og Autre \fg{} ne sont pas associées
+automatiquement.
+
+Les lignes concernées sont verrouillées (\texttt{FOR UPDATE SKIP LOCKED}) : si deux annonces arrivent
+en même temps, une même offre ne peut pas être attribuée à deux acheteurs. Lorsqu'une annonce est
+annulée, l'annonce associée repasse en attente et peut trouver un autre partenaire.
+
+\subsection{Échanges entre les deux parties}
+
+Une fois l'association faite, chacun voit la fiche de l'autre (nom, téléphone, localité, distance)
+avec trois actions : appeler, écrire sur WhatsApp ou ouvrir la conversation intégrée. Celle-ci
+accepte des messages écrits et vocaux ; les vocaux sont stockés en MP3 dans Supabase.
+
+\section{Données et sécurité}
+
+\subsection{Modèle de données}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{lL}
+\toprule
+Table & Contenu \\
+\midrule
+\texttt{profiles} & nom, téléphone (format international, unique), localité, coordonnées GPS, code de connexion haché \\
+\texttt{sessions} & une session par appareil connecté (empreinte du jeton) \\
+\texttt{annonces} & intention, produit, quantité, lieu, transcriptions, chemin de l'audio, statut, annonce associée \\
+\texttt{messages} & messages écrits et vocaux entre deux annonces associées \\
+\texttt{assistant\_vocaux} & questions vocales posées à l'assistant, transcriptions et réponses \\
+\bottomrule
+\end{tabularx}
+\caption{Tables principales}
+\end{table}
+
+\subsection{Mesures de sécurité}
+
+\begin{itemize}
+  \item \textbf{Aucun accès direct à la base depuis le navigateur.} La sécurité au niveau des lignes
+  (RLS) est activée sans aucune règle d'accès public. Toutes les opérations passent par des fonctions
+  SQL exécutables uniquement par le serveur.
+  \item \textbf{Sessions.} À l'inscription ou à la connexion, le serveur génère un jeton aléatoire de
+  256 bits. Seule son empreinte SHA-256 est stockée. Chaque appareil a sa propre session, révoquée
+  à la déconnexion.
+  \item \textbf{Connexion par code.} En l'absence de vérification par SMS, un code à 4 chiffres est
+  demandé à l'inscription. Il est haché avec bcrypt dans la base. Après 5 erreurs, le compte est
+  bloqué 15 minutes, et le message d'erreur est le même que le numéro existe ou non.
+  \item \textbf{Audios privés.} Le stockage des fichiers est privé. La lecture se fait par des liens
+  signés valables 6 heures, réservés aux personnes concernées.
+  \item \textbf{Clés d'API.} Les clés Djelia, Anthropic et Supabase restent sur le serveur Python.
+\end{itemize}
+
+\section{Interface utilisateur}
+
+L'application compte trois onglets, dans un style volontairement sobre inspiré d'iOS :
+\begin{description}
+  \item[Vocal.] Un grand bouton micro au centre, à maintenir pour parler, et une saisie écrite
+  facultative.
+  \item[Mes vocaux.] Les annonces publiées, leur état (en attente ou associée) et le contact du
+  partenaire, avec une pastille pour les nouveautés.
+  \item[Assistant.] Une conversation avec le conseiller agricole, par texte, photo ou voix, avec
+  lecture des réponses à voix haute.
+\end{description}
+
+L'inscription demande le nom, le téléphone et le code ; la position est détectée automatiquement
+par le GPS du téléphone, avec une saisie manuelle de la ville en cas de refus. Un bouton en haut à
+droite donne accès au compte et à la déconnexion. Les nouveautés sont récupérées par interrogation
+régulière du serveur (toutes les 10 secondes pour la liste, toutes les 4 secondes dans une
+conversation).
+
+\section{Déploiement}
+
+\begin{itemize}
+  \item \textbf{Application web} : Vercel, déploiement automatique à chaque mise à jour du dépôt Git.
+  \item \textbf{Serveur Python} : Railway, construit avec Railpack (Python 3.12, ffmpeg installé). Le
+  modèle Whisper est téléchargé au premier démarrage puis chargé en mémoire.
+  \item \textbf{Base de données} : Supabase, schéma versionné sous forme de migrations SQL.
+\end{itemize}
+
+\section{Tests et validation}
+
+\subsection{Parcours complet}
+
+Un test automatisé de bout en bout exerce le système réel (serveur, modèles, base de données) :
+inscription avec géolocalisation, refus d'un numéro déjà inscrit et d'un jeton invalide, annonce
+vocale en dioula avec stockage et relecture de l'audio, mise en relation avec une annonce écrite,
+messages écrits et vocaux, contrôle d'accès à la conversation, archivage d'une question vocale et
+annulation. Les 16 vérifications sont réussies. Un second test couvre l'authentification
+(inscription avec code, mauvais code, deux appareils, déconnexion, blocage) : 11 vérifications
+réussies sur 11.
+
+\subsection{Détection de la langue}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{lccL}
+\toprule
+Vocal & Langue détectée & Probabilité fr/en & Résultat \\
+\midrule
+Français & français & 0,99 & transcription correcte, réponse en français \\
+Anglais & anglais & 1,00 & transcription correcte, réponse en anglais \\
+Dioula & dioula & 0,32 & confié à Djelia, réponse vocale en dioula \\
+\bottomrule
+\end{tabularx}
+\caption{Détection de la langue avec Whisper \texttt{small} (seuil 0,6)}
+\end{table}
+
+Une annonce écrite en anglais (\og I want to buy two tons of rice near Korhogo \fg{}) est correctement
+analysée : achat, riz, 2 tonnes, Korhogo, avec la version française \og Je voudrais acheter deux
+tonnes de riz près de Korhogo \fg{}.
+
+Ces mesures ont été faites sur des voix de synthèse ; une campagne de tests avec de vrais locuteurs,
+en particulier en dioula mêlé de mots français, reste à mener.
+
+\section{Feuille de route : toutes les langues locales africaines}
+\label{sec:roadmap}
+
+\subsection{Ambition}
+
+Le dioula n'est qu'un point de départ. L'objectif d'AgriVoix est de parler toutes les langues
+dans lesquelles se négocient les récoltes en Afrique, et de devenir l'application numéro un de la
+vente agricole sur le continent. Chaque nouvelle langue ouvre l'application à des producteurs qui
+n'ont aujourd'hui accès à aucun outil numérique dans leur langue.
+
+\subsection{Calendrier}
+
+\begin{table}[h]
+\centering
+\begin{tabularx}{\textwidth}{lL}
+\toprule
+Échéance & Étape \\
+\midrule
+Novembre 2026 & Dioula, français et anglais en service (version actuelle) \\
+Décembre 2026 & Intégration du wolof, lancement au Sénégal \\
+2027 & Extension aux grandes langues agricoles d'Afrique de l'Ouest, puis du reste du continent, par ordre de nombre de producteurs \\
+\bottomrule
+\end{tabularx}
+\caption{Calendrier d'intégration des langues}
+\end{table}
+
+\subsection{Une architecture prévue pour ajouter des langues}
+
+La chaîne actuelle sépare déjà les rôles. Ajouter une langue revient à fournir quatre éléments,
+sans modifier le reste de l'application (mise en relation, conversations, interface) :
+\begin{enumerate}
+  \item \textbf{un moteur de reconnaissance vocale} pour la langue ;
+  \item \textbf{un moteur de traduction} vers le français, et retour ;
+  \item \textbf{une voix de synthèse} pour lire les réponses de l'assistant ;
+  \item \textbf{un dictionnaire agricole} dans le même format que le dictionnaire dioula, avec les
+  noms locaux des cultures et leurs variantes.
+\end{enumerate}
+Le dictionnaire reste la pièce maîtresse : comme pour le dioula, c'est lui qui spécialise des
+modèles généralistes sur le vocabulaire des marchés agricoles de chaque pays.
+
+\subsection{Cas du wolof}
+
+Pour le wolof, prévu en décembre 2026, les travaux sont les suivants :
+\begin{itemize}
+  \item constituer le dictionnaire agricole français-wolof (céréales, arachide, oignon, mil, niébé,
+  maraîchage, unités de mesure locales) avec ses variantes ;
+  \item retenir les moteurs de reconnaissance, de traduction et de synthèse vocale wolof. Les modèles
+  multilingues ouverts couvrant le wolof, comme la famille Meta MMS, font partie des pistes étudiées ;
+  \item adapter la liste des produits suivis aux filières sénégalaises.
+\end{itemize}
+
+\subsection{Faire évoluer la détection de la langue}
+
+La règle actuelle (\og tout ce qui n'est ni du français ni de l'anglais est du dioula \fg{})
+fonctionne avec une seule langue locale. Avec plusieurs langues locales, elle sera remplacée par un
+modèle d'identification de la langue parlée couvrant les langues africaines, complété par la langue
+préférée et le pays de l'utilisateur pour lever les ambiguïtés entre langues proches.
+
+\section{Limites et perspectives}
+
+\begin{itemize}
+  \item \textbf{Reconnaissance vocale dioula.} Le modèle Djelia entend parfois \og ka ba \fg{} au lieu
+  de \textit{kaba}. Le dictionnaire corrige les variantes connues, mais pas toutes les erreurs de
+  segmentation.
+  \item \textbf{Dioula mêlé de français.} Un vocal très mélangé peut être pris pour du français ; le
+  seuil de détection devra être ajusté sur des enregistrements réels.
+  \item \textbf{Vérification du numéro.} Il n'y a pas encore de vérification par SMS.
+  \item \textbf{Temps réel.} Les nouveautés arrivent par interrogation régulière et non par
+  notification instantanée.
+  \item \textbf{Mise en relation.} L'association se fait par produit et par ordre d'arrivée ; la
+  distance, la quantité et le prix pourraient être pris en compte.
+  \item \textbf{Vers un entraînement dédié.} Les questions vocales archivées, avec leur transcription
+  et leur traduction, constituent un corpus agricole réel. Une fois relu et validé, il pourra servir
+  à entraîner spécifiquement les modèles de reconnaissance et de traduction sur le domaine agricole,
+  en complément du dictionnaire.
+\end{itemize}
+
+\section{Conclusion}
+
+AgriVoix montre qu'une plateforme agricole peut se passer de formulaires : un vocal suffit pour
+publier une annonce, être mis en relation et obtenir un conseil, en dioula, en français ou en anglais.
+Le point clé du système est la spécialisation agricole de la chaîne Djelia par un dictionnaire
+personnalisé, appliqué avant la traduction, pendant la génération et lors de la correction des
+annonces : elle rend la compréhension fiable sur le vocabulaire qui compte le plus pour la mise en
+relation, les noms des produits.
+
+Cette approche est reproductible : avec le wolof dès décembre 2026, puis les autres langues locales
+africaines, AgriVoix vise à devenir l'application numéro un de la vente agricole en Afrique, celle
+où chaque producteur peut vendre sa récolte en parlant sa propre langue.
+
+\end{document}
